@@ -5,6 +5,7 @@ import SalesForecast from './SalesForcast';
 import TopProducts from './TopProducts';
 import SalesKPIs from './SalesKpis';
 import DemandForecast from './DemandForecast';
+import MonthlySalesChart from './MonthlySales';
 
 function SalesDashboard() {
   return (
@@ -20,6 +21,9 @@ function SalesDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <TopProducts />
         <DemandForecast />
+      </div>
+      <div>
+        <MonthlySalesChart/>
       </div>
 
     </div>

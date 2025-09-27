@@ -20,13 +20,13 @@ function ChurnPrediction() {
   }, [count]);
 
   return (
-    <div className="bg-white p-4 md:p-6 rounded-lg shadow-md flex flex-col h-[600px]">
+    <div className="bg-white p-4 md:p-6 rounded-lg shadow-md flex flex-col h-[600px] ">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-semibold text-gray-800">High-Risk Customers</h2>
         <select 
           value={count} 
           onChange={(e) => setCount(Number(e.target.value))}
-          className="border border-gray-300 rounded-md p-1"
+          className="border border-gray-300 rounded-md p-1 "
         >
           <option value="5">Top 5</option>
           <option value="10">Top 10</option>
@@ -39,8 +39,8 @@ function ChurnPrediction() {
         {loading ? (
           <div className="text-center p-4">Loading...</div>
         ) : (
-          <table className="w-full text-left">
-            <thead className="bg-gray-50 sticky top-0">
+          <table className="w-full text-left ">
+            <thead className="bg-gray-50 sticky top-0 ">
               <tr>
                 <th className="p-3 text-sm font-semibold text-gray-600 uppercase tracking-wider">Customer ID</th>
                 {/* --- NEW COLUMNS --- */}
@@ -50,7 +50,7 @@ function ChurnPrediction() {
                 <th className="p-3 text-sm font-semibold text-gray-600 uppercase tracking-wider">Churn Score</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200">
+            <tbody className="divide-y divide-gray-200 ">
               {churners.map(customer => (
                 <tr key={customer.customer_id} className="hover:bg-gray-50">
                   <td className="p-3 whitespace-nowrap font-medium text-gray-700">{customer.customer_id}</td>
