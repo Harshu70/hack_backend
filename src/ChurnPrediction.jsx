@@ -20,7 +20,6 @@ function ChurnPrediction() {
   }, [count]);
 
   return (
-    // We make the main container a flex column with a fixed height
     <div className="bg-white p-4 md:p-6 rounded-lg shadow-md flex flex-col h-[600px]">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-xl font-semibold text-gray-800">High-Risk Customers</h2>
@@ -36,8 +35,6 @@ function ChurnPrediction() {
         </select>
       </div>
 
-      {/* This container will handle the scrolling */}
-      {/* We replace 'flex-grow' with 'overflow-y-auto' which will add the scrollbar */}
       <div className="overflow-y-auto">
         {loading ? (
           <div className="text-center p-4">Loading...</div>
@@ -46,14 +43,30 @@ function ChurnPrediction() {
             <thead className="bg-gray-50 sticky top-0">
               <tr>
                 <th className="p-3 text-sm font-semibold text-gray-600 uppercase tracking-wider">Customer ID</th>
-                <th className="p-3 text-sm font-semibold text-gray-600 uppercase tracking-wider">Churn Probability</th>
+                {/* --- NEW COLUMNS --- */}
+                <th className="p-3 text-sm font-semibold text-gray-600 uppercase tracking-wider">Last Purchase</th>
+                <th className="p-3 text-sm font-semibold text-gray-600 uppercase tracking-wider">Cancellations</th>
+                <th className="p-3 text-sm font-semibold text-gray-600 uppercase tracking-wider">Status</th>
+                <th className="p-3 text-sm font-semibold text-gray-600 uppercase tracking-wider">Churn Score</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {churners.map(customer => (
                 <tr key={customer.customer_id} className="hover:bg-gray-50">
-                  <td className="p-3 whitespace-nowrap">{customer.customer_id}</td>
-                  <td className="p-3 whitespace-nowrap font-medium text-red-600">
+                  <td className="p-3 whitespace-nowrap font-medium text-gray-700">{customer.customer_id}</td>
+                  {/* --- NEW DATA CELLS --- */}
+                  <td className="p-3 whitespace-nowrap text-gray-600">{customer.last_purchase_date}</td>
+                  <td className="p-3 whitespace-nowrap text-center text-gray-600">{customer.total_cancellations}</td>
+                  <td className="p-3 whitespace-nowrap">
+                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                      customer.subscription_status === 'active' ? 'bg-green-100 text-green-800' :
+                      customer.subscription_status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                      'bg-yellow-100 text-yellow-800'
+                    }`}>
+                      {customer.subscription_status}
+                    </span>
+                  </td>
+                  <td className="p-3 whitespace-nowrap font-bold text-red-600">
                     {(customer.churn_probability * 100).toFixed(2)}%
                   </td>
                 </tr>
