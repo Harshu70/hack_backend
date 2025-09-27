@@ -6,6 +6,12 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from decimal import Decimal
 import datetime
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
+
+# from pyngrok import ngrok
+
+# public_url = ngrok.connect(5000)
+# print(public_url)
 
 # --- Database Connection Details ---
 DB_NAME = "hackathon"
@@ -101,21 +107,40 @@ def get_orders():
     conn.close()
     return jsonify(orders_list)
 
+
+# In your app.py file
+
 @app.route('/api/predict_churn', methods=['GET'])
 def predict_churn():
-    # ... (This is your updated prediction endpoint) ...
+    """Predicts the top N customers likely to churn with additional details."""
     try:
         count = request.args.get('count', default=10, type=int)
+
         customer_df = get_aggregated_data()
         customer_df_featured = feature_engineering_for_prediction(customer_df)
+        
         df_predict = pd.get_dummies(customer_df_featured, columns=['gender', 'country'], drop_first=True)
         df_predict_aligned = df_predict.reindex(columns=model_columns, fill_value=0)
         df_predict_aligned[numeric_columns] = scaler.transform(df_predict_aligned[numeric_columns])
+        
         churn_probabilities = churn_model.predict_proba(df_predict_aligned[model_columns])[:, 1]
-        results_df = customer_df_featured[['customer_id']].copy()
+        
+        # --- CRITICAL CHANGE: Select more columns for the results ---
+        results_df = customer_df_featured[[
+            'customer_id', 
+            'last_purchase_date', 
+            'total_cancellations', 
+            'subscription_status'
+        ]].copy()
         results_df['churn_probability'] = churn_probabilities
+        
         top_n_churners = results_df.sort_values(by='churn_probability', ascending=False).head(count)
+        
+        # Convert date to string for JSON compatibility
+        top_n_churners['last_purchase_date'] = top_n_churners['last_purchase_date'].dt.strftime('%Y-%m-%d')
+        
         return jsonify(top_n_churners.to_dict(orient='records'))
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -288,5 +313,189 @@ def get_full_sales_view():
         if conn is not None:
             conn.close()
 
+@app.route('/api/sales_kpis', methods=['GET'])
+def get_sales_kpis():
+    """Analyzes historical sales to find key performance indicators."""
+    conn = None
+    try:
+        conn = psycopg2.connect(
+            database=DB_NAME, user=DB_USER, password=DB_PASS, host=DB_HOST, port=DB_PORT
+        )
+        sql_query = """
+            SELECT last_purchase_date, (unit_price * quantity) as order_amount
+            FROM orders;
+        """
+        df = pd.read_sql(sql_query, conn)
+        df['last_purchase_date'] = pd.to_datetime(df['last_purchase_date'], errors='coerce')
+        df = df.dropna(subset=['last_purchase_date', 'order_amount'])
+
+        # Calculate KPIs
+        total_revenue = df['order_amount'].sum()
+        avg_daily_sales = df.groupby(df['last_purchase_date'].dt.date)['order_amount'].sum().mean()
+        
+        # Find best and worst sales month
+        monthly_sales = df.set_index('last_purchase_date').resample('M')['order_amount'].sum()
+        best_month = monthly_sales.idxmax()
+        best_month_sales = monthly_sales.max()
+        worst_month = monthly_sales.idxmin()
+        worst_month_sales = monthly_sales.min()
+
+        kpis = {
+            "total_revenue": total_revenue,
+            "average_daily_sales": avg_daily_sales,
+            "best_month": best_month.strftime('%B %Y'),
+            "best_month_sales": best_month_sales,
+            "worst_month": worst_month.strftime('%B %Y'),
+            "worst_month_sales": worst_month_sales,
+        }
+        return jsonify(kpis)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn is not None:
+            conn.close()
+
+@app.route('/api/product_demand_forecast', methods=['GET'])
+def get_product_demand_forecast():
+    """Forecasts demand for the top 5 selling products with a fallback for sparse data."""
+    conn = None
+    try:
+        conn = psycopg2.connect(
+            database=DB_NAME, user=DB_USER, password=DB_PASS, host=DB_HOST, port=DB_PORT
+        )
+        
+        # Step 1: Find top 5 products (unchanged)
+        top_products_query = """
+            SELECT product_id, SUM(quantity) as total_quantity
+            FROM orders
+            GROUP BY product_id
+            ORDER BY total_quantity DESC
+            LIMIT 5;
+        """
+        top_products_df = pd.read_sql(top_products_query, conn)
+        top_product_ids = top_products_df['product_id'].tolist()
+
+        if not top_product_ids:
+            return jsonify([])
+
+        # Step 2: Fetch sales history (unchanged)
+        sales_history_query = f"""
+            SELECT o.last_purchase_date, o.product_id, o.quantity, p.product_name
+            FROM orders o
+            JOIN products p ON o.product_id = p.product_id
+            WHERE o.product_id IN ({",".join(["'%s'" % pid for pid in top_product_ids])});
+        """
+        sales_history_df = pd.read_sql(sales_history_query, conn)
+        sales_history_df['last_purchase_date'] = pd.to_datetime(sales_history_df['last_purchase_date'])
+
+        # Step 3: Forecast for each product
+        all_forecasts = []
+        for product_id in top_product_ids:
+            product_sales = sales_history_df[sales_history_df['product_id'] == product_id]
+            daily_demand = product_sales.groupby('last_purchase_date')['quantity'].sum().asfreq('D').fillna(0)
+            product_name = product_sales['product_name'].iloc[0]
+            
+            forecasted_demand = 0
+            if len(daily_demand[daily_demand > 0]) > 7:
+                model = ExponentialSmoothing(daily_demand, trend='add', seasonal=None).fit(smoothing_level=0.2)
+                forecast = model.forecast(30)
+                forecasted_demand = abs(round(forecast.sum()))
+            else:
+                total_units = daily_demand.sum()
+                days_with_sales = (daily_demand.index.max() - daily_demand.index.min()).days
+                if days_with_sales > 0:
+                    avg_daily_rate = total_units / days_with_sales
+                    forecasted_demand = abs(round(avg_daily_rate * 30))
+                else:
+                    forecasted_demand = total_units
+            
+            all_forecasts.append({
+                "product_id": product_id,
+                "product_name": product_name,
+                # --- CRITICAL FIX: Convert the number to a standard Python integer ---
+                "forecasted_demand_30_days": int(forecasted_demand)
+            })
+
+        return jsonify(all_forecasts)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn is not None:
+            conn.close()
+
+@app.route('/api/user_distribution', methods=['GET'])
+def get_user_distribution():
+    """Calculates the number of users per country."""
+    conn = None
+    try:
+        conn = psycopg2.connect(
+            database=DB_NAME, user=DB_USER, password=DB_PASS, host=DB_HOST, port=DB_PORT
+        )
+        sql_query = """
+            SELECT country, COUNT(customer_id) as user_count
+            FROM customers
+            GROUP BY country
+            ORDER BY user_count DESC;
+        """
+        df = pd.read_sql(sql_query, conn)
+        
+        # Convert the DataFrame to a list of dictionaries
+        country_data = df.to_dict(orient='records')
+        return jsonify(country_data)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn is not None:
+            conn.close()
+
+@app.route('/api/main_kpis', methods=['GET'])
+def get_main_kpis():
+    """Calculates the main dashboard KPIs: Revenue, Orders, AOV, and Churn Rate."""
+    conn = None
+    try:
+        conn = psycopg2.connect(
+            database=DB_NAME, user=DB_USER, password=DB_PASS, host=DB_HOST, port=DB_PORT
+        )
+        
+        # --- Part 1: Calculate Sales KPIs ---
+        sales_query = """
+            SELECT
+                SUM(unit_price * quantity) as total_revenue,
+                COUNT(DISTINCT order_id) as total_orders
+            FROM orders;
+        """
+        sales_df = pd.read_sql(sales_query, conn)
+        total_revenue = sales_df['total_revenue'][0]
+        total_orders = sales_df['total_orders'][0]
+        average_order_value = total_revenue / total_orders if total_orders > 0 else 0
+
+        # --- Part 2: Calculate Churn Rate ---
+        customer_df = get_aggregated_data()
+        customer_df_featured = feature_engineering_for_prediction(customer_df)
+        df_predict = pd.get_dummies(customer_df_featured, columns=['gender', 'country'], drop_first=True)
+        df_predict_aligned = df_predict.reindex(columns=model_columns, fill_value=0)
+        df_predict_aligned[numeric_columns] = scaler.transform(df_predict_aligned[numeric_columns])
+        predictions = churn_model.predict(df_predict_aligned[model_columns])
+        churn_rate = (predictions.sum() / len(predictions)) * 100 if len(predictions) > 0 else 0
+
+        # --- Part 3: Combine and CONVERT KPIs ---
+        kpis = {
+            "total_revenue": float(total_revenue),
+            "total_orders": int(total_orders),
+            "average_order_value": float(average_order_value),
+            "churn_rate": float(churn_rate),
+        }
+        
+        return jsonify(kpis)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn is not None:
+            conn.close()
+
 if __name__ == '__main__':
-    app.run(debug=True, threaded=False)
+    app.run(host='0.0.0.0', debug=True, threaded=False)
