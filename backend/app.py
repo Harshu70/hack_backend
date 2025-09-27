@@ -581,5 +581,42 @@ def get_sales_by_age():
         if conn is not None:
             conn.close()
 
+@app.route('/api/monthly_sales', methods=['GET'])
+def get_monthly_sales():
+    """Fetches total quantity sold grouped by month."""
+    conn = None
+    try:
+        conn = psycopg2.connect(
+            database=DB_NAME, user=DB_USER, password=DB_PASS, host=DB_HOST, port=DB_PORT
+        )
+        sql_query = """
+            SELECT last_purchase_date, quantity
+            FROM orders;
+        """
+        df = pd.read_sql(sql_query, conn)
+        df['last_purchase_date'] = pd.to_datetime(df['last_purchase_date'], errors='coerce')
+        df = df.dropna(subset=['last_purchase_date', 'quantity'])
+
+        # Group by Year-Month and sum quantities
+        monthly_sales = (
+            df.groupby(df['last_purchase_date'].dt.to_period("M"))['quantity']
+              .sum()
+              .reset_index()
+        )
+        monthly_sales['last_purchase_date'] = monthly_sales['last_purchase_date'].dt.strftime('%B %Y')
+
+        data = [
+            {"month": row['last_purchase_date'], "total_quantity": int(row['quantity'])}
+            for _, row in monthly_sales.iterrows()
+        ]
+
+        return jsonify(data)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn is not None:
+            conn.close()
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, threaded=False)
