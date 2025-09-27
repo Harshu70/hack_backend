@@ -7,6 +7,8 @@ from flask_cors import CORS
 from decimal import Decimal
 import datetime
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
+from data_importer import insert_data_from_df
+
 
 # from pyngrok import ngrok
 
@@ -496,6 +498,41 @@ def get_main_kpis():
     finally:
         if conn is not None:
             conn.close()
+
+
+@app.route('/api/upload_data', methods=['POST'])
+def upload_data():
+    """Receives an Excel file and uses the importer to add it to the database."""
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part in the request"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No file selected for uploading"}), 400
+
+    if file and (file.filename.endswith('.xls') or file.filename.endswith('.xlsx')):
+        conn = None
+        try:
+            df = pd.read_excel(file)
+            conn = psycopg2.connect(
+                database=DB_NAME, user=DB_USER, password=DB_PASS, host=DB_HOST, port=DB_PORT
+            )
+            
+            # Call the function from the other file
+            result = insert_data_from_df(conn, df)
+            
+            if result['success']:
+                return jsonify({"message": f"Successfully processed {result['rows_processed']} rows."})
+            else:
+                return jsonify({"error": result['error']}), 500
+
+        except Exception as e:
+            return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+        finally:
+            if conn is not None:
+                conn.close()
+    else:
+        return jsonify({"error": "Invalid file type. Please upload an Excel file."}), 400
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, threaded=False)
