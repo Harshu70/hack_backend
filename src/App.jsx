@@ -8,6 +8,7 @@ import SalesKPIs from './SalesKpis';
 import DemandForecast from './DemandForecast';
 import GeoChart from './GeoChart';
 import DataUploader from './DataUploader';
+import AgeChart from './AgeChart';
 
 function App() {
   return (
@@ -34,6 +35,7 @@ function App() {
             <DemandForecast />
             <GeoChart />
             <DataUploader />
+            <AgeChart />
       </div>
     </div>
   );
