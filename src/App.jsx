@@ -7,6 +7,7 @@ import TopProducts from './TopProducts';
 import SalesKPIs from './SalesKpis';
 import DemandForecast from './DemandForecast';
 import GeoChart from './GeoChart';
+import DataUploader from './DataUploader';
 
 function App() {
   return (
@@ -32,6 +33,7 @@ function App() {
             <SalesKPIs />
             <DemandForecast />
             <GeoChart />
+            <DataUploader />
       </div>
     </div>
   );
