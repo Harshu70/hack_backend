@@ -46,7 +46,7 @@ function ChurnTrendChart() {
 
   // Add Tailwind classes for a card-like container
   return (
-    <div className="bg-white p-4 md:p-6 rounded-lg shadow-md">
+    <div className="bg-white p-4 md:p-6 rounded-lg shadow-md mb-4">
       {chartData && <Line options={options} data={chartData} />}
     </div>
   );
