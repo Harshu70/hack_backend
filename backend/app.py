@@ -533,6 +533,53 @@ def upload_data():
                 conn.close()
     else:
         return jsonify({"error": "Invalid file type. Please upload an Excel file."}), 400
+    
+@app.route('/api/sales_by_age', methods=['GET'])
+def get_sales_by_age():
+    """Calculates total sales revenue for predefined age groups."""
+    conn = None
+    try:
+        conn = psycopg2.connect(
+            database=DB_NAME, user=DB_USER, password=DB_PASS, host=DB_HOST, port=DB_PORT
+        )
+
+        # SQL query uses a CASE statement to group customers into age buckets
+        sql_query = """
+            SELECT
+                CASE
+                    WHEN c.age BETWEEN 18 AND 25 THEN '18-25'
+                    WHEN c.age BETWEEN 26 AND 35 THEN '26-35'
+                    WHEN c.age BETWEEN 36 AND 45 THEN '36-45'
+                    WHEN c.age BETWEEN 46 AND 60 THEN '46-60'
+                    -- Assuming anyone 61 or older is 60+
+                    ELSE '60+' 
+                END AS age_group,
+                -- Sum the quantity from the orders table
+                SUM(o.quantity) AS total_sales
+            FROM customers c
+            -- Join customers table with the orders table
+            JOIN orders o ON c.customer_id = o.customer_id
+            -- Group by the newly created age_group label
+            GROUP BY age_group
+            ORDER BY total_sales DESC;
+        """
+        
+        # Use pandas to execute the query and fetch the results
+        df = pd.read_sql(sql_query, conn)
+        
+        # Convert the DataFrame to a list of dictionaries for JSON
+        # Example output structure: [{"age_group": "26-35", "total_sales": 150000.50}, ...]
+        age_data = df.to_dict(orient='records')
+        
+        return jsonify(age_data)
+
+    except Exception as e:
+        # Handle the exception and return a 500 error
+        print(f"Database Error in get_sales_by_age: {e}")
+        return jsonify({"error": "Failed to fetch sales by age data."}), 500
+    finally:
+        if conn is not None:
+            conn.close()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, threaded=False)
