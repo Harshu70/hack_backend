@@ -618,5 +618,81 @@ def get_monthly_sales():
         if conn is not None:
             conn.close()
 
+@app.route('/api/yearly_sales', methods=['GET'])
+def get_yearly_sales():
+    """Fetches total quantity sold grouped by year."""
+    conn = None
+    try:
+        conn = psycopg2.connect(
+            database=DB_NAME, user=DB_USER, password=DB_PASS, host=DB_HOST, port=DB_PORT
+        )
+        sql_query = """
+            SELECT last_purchase_date, quantity
+            FROM orders;
+        """
+        df = pd.read_sql(sql_query, conn)
+        df['last_purchase_date'] = pd.to_datetime(df['last_purchase_date'], errors='coerce')
+        df = df.dropna(subset=['last_purchase_date', 'quantity'])
+
+        yearly_sales = (
+            df.groupby(df['last_purchase_date'].dt.year)['quantity']
+              .sum()
+              .reset_index()
+        )
+        yearly_sales.rename(columns={"last_purchase_date": "year", "quantity": "total_quantity"}, inplace=True)
+
+        data = [
+            {"year": int(row['year']), "total_quantity": int(row['total_quantity'])}
+            for _, row in yearly_sales.iterrows()
+        ]
+
+        return jsonify(data)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn is not None:
+            conn.close()
+
+@app.route('/api/db_stats', methods=['GET'])
+def get_db_stats():
+    """Returns total entries count and % of cancelled subscriptions."""
+    conn = None
+    try:
+        conn = psycopg2.connect(
+            database=DB_NAME, user=DB_USER, password=DB_PASS,
+            host=DB_HOST, port=DB_PORT
+        )
+        cur = conn.cursor()
+
+        # Total entries
+        cur.execute("SELECT COUNT(*) FROM orders;")
+        total_count = cur.fetchone()[0]
+
+        # Cancelled subscriptions
+        cur.execute("""
+            SELECT COUNT(*) FROM orders 
+            WHERE subscription_status = 'cancelled';
+        """)
+        cancelled_count = cur.fetchone()[0]
+
+        # Percentage calculation
+        cancelled_percentage = (
+            (cancelled_count / total_count) * 100 if total_count > 0 else 0
+        )
+
+        cur.close()
+        return jsonify({
+            "total_entries": total_count,
+            "cancelled_count": cancelled_count,
+            "cancelled_percentage": round(cancelled_percentage, 2)
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, threaded=False)
